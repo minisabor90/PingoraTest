@@ -169,11 +169,6 @@ jobs:
                             format!("/{}", remaining_path)
                         };
                         
-                        let new_uri = format!("{}{}", 
-                            session.req_header().uri.scheme_str().unwrap_or("http"),
-                            new_path
-                        );
-                        
                         session.req_header_mut().set_uri(new_path.parse().unwrap());
                         
                         return Ok(false); // Continue processing
@@ -303,17 +298,15 @@ jobs:
         EOF
 
     - name: Setup Rust
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: stable
-        target: aarch64-linux-android
-        override: true
+        targets: aarch64-linux-android
         components: rustfmt, clippy
 
     - name: Setup Android NDK
       uses: nttld/setup-ndk@v1
       with:
-        ndk-version: r25c
+        ndk-version: r26d
         add-to-path: false
 
     - name: Setup build environment
@@ -321,16 +314,14 @@ jobs:
         echo "ANDROID_NDK_ROOT=$ANDROID_NDK_ROOT" >> $GITHUB_ENV
         echo "$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
 
-    - name: Install Android target
-      run: rustup target add aarch64-linux-android
-
     - name: Cache cargo dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          pingora-http3-proxy/target
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          pingora-http3-proxy/target/
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-cargo-
@@ -392,15 +383,16 @@ jobs:
         chmod +x release-package/start.sh
 
     - name: Upload Android ARM64 binary
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: pingora-http3-proxy-android-arm64
         path: release-package/
         retention-days: 30
+        compression-level: 9
 
     - name: Create release on tag
       if: startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         files: |
           release-package/pingora-http3-proxy
@@ -430,7 +422,15 @@ jobs:
           - `http://localhost:8080/api1/get`
           - `http://localhost:8080/api2/posts/1`
           
-          Binary size: ~$(du -h release-package/pingora-http3-proxy | cut -f1)
+          ### Quick Start:
+          ```bash
+          # Download and run
+          wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/pingora-http3-proxy
+          chmod +x pingora-http3-proxy
+          ./pingora-http3-proxy
+          ```
+          
+          Binary optimized for Android ARM64 with minimal size.
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -441,9 +441,54 @@ jobs:
         echo "- **Binary size**: $(du -h pingora-http3-proxy/target/aarch64-linux-android/release/pingora-http3-proxy | cut -f1)" >> $GITHUB_STEP_SUMMARY
         echo "- **Features**: HTTP3 reverse proxy with SSL pinning" >> $GITHUB_STEP_SUMMARY
         echo "- **Upstreams**: 20 configurable endpoints" >> $GITHUB_STEP_SUMMARY
+        echo "- **Optimization**: Size optimized with LTO and strip" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Test the proxy:" >> $GITHUB_STEP_SUMMARY
+        echo "### 📦 Artifact Details:" >> $GITHUB_STEP_SUMMARY
+        echo "- **Name**: pingora-http3-proxy-android-arm64" >> $GITHUB_STEP_SUMMARY
+        echo "- **Retention**: 30 days" >> $GITHUB_STEP_SUMMARY
+        echo "- **Compression**: Level 9 (maximum)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🧪 Test the proxy:" >> $GITHUB_STEP_SUMMARY
         echo '```bash' >> $GITHUB_STEP_SUMMARY
+        echo "# Basic test" >> $GITHUB_STEP_SUMMARY
         echo "curl http://localhost:8080/api1/get" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "# JSON API test" >> $GITHUB_STEP_SUMMARY
         echo "curl http://localhost:8080/api2/posts/1" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "# Custom endpoint test" >> $GITHUB_STEP_SUMMARY
+        echo "curl http://localhost:8080/api3/api/users/2" >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔧 Configuration:" >> $GITHUB_STEP_SUMMARY
+        echo "Edit upstreams in \`src/main.rs\` to add your endpoints:" >> $GITHUB_STEP_SUMMARY
+        echo '```rust' >> $GITHUB_STEP_SUMMARY
+        echo 'upstreams.insert("myapi".to_string(), UpstreamConfig {' >> $GITHUB_STEP_SUMMARY
+        echo '    host: "my-api.com".to_string(),' >> $GITHUB_STEP_SUMMARY
+        echo '    port: 443,' >> $GITHUB_STEP_SUMMARY
+        echo '    use_tls: true,' >> $GITHUB_STEP_SUMMARY
+        echo '    cert_fingerprint: Some("sha256:YOUR_CERT_FINGERPRINT".to_string()),' >> $GITHUB_STEP_SUMMARY
+        echo '});' >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+
+    - name: Performance and size report
+      run: |
+        echo "## 📊 Binary Analysis" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### File Information:" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        file pingora-http3-proxy/target/aarch64-linux-android/release/pingora-http3-proxy >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Size Details:" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        ls -la pingora-http3-proxy/target/aarch64-linux-android/release/pingora-http3-proxy >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Optimization Applied:" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ LTO (Link Time Optimization)" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Size optimization (opt-level = 'z')" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Single codegen unit" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Panic = abort" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Symbol stripping" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ LLVM strip applied" >> $GITHUB_STEP_SUMMARY
